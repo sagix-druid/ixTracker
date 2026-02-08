@@ -234,8 +234,7 @@ Frontend renders:
 const SUPPORTED_CHAINS = [
   { id: 1, name: 'Ethereum', moralisChain: 'eth' },
   { id: 8453, name: 'Base', moralisChain: 'base' },
-  { id: 42161, name: 'Arbitrum', moralisChain: 'arbitrum' },
-  { id: 10, name: 'Optimism', moralisChain: 'optimism' },
+
 ];
 ```
 
