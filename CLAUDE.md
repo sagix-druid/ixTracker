@@ -160,8 +160,7 @@ This is a Sagix Club distribution tool. When users see their portfolio's Sharpe 
 
 ### 1. Wallet Connection
 - Connect via WalletConnect / MetaMask
-- Support multiple chains: Ethereum, Base, Arbitrum, Optimism, Gnosis
-
+- Support multiple chains: Ethereum, Base
 ### 2. Holdings Table
 | Column | Description |
 |--------|-------------|
