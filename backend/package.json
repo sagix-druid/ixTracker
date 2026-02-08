@@ -1,0 +1,20 @@
+{
+  "name": "sagix-portfolio-tracker-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Sagix Portfolio Tracker — Moralis-powered multi-chain balance fetching",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@moralisweb3/common-evm-utils": "^2.27.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.4",
+    "express": "^5.2.1",
+    "moralis": "^2.27.2"
+  }
+}
