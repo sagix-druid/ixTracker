@@ -6,7 +6,7 @@ const { initMoralis } = require('./services/moralis');
 const { loadDtfsFromEnv } = require('./services/navPricing');
 
 const balancesRouter = require('./routes/balances');
-const defiPositionsRouter = require('./routes/defiPositions');
+const defiPositionsRouter = require('./routes/defi-positions');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -38,7 +38,6 @@ async function start() {
       console.log(`[server] Endpoints:`);
       console.log(`[server]   GET /api/balances?address=0x...`);
       console.log(`[server]   GET /api/defi-positions?address=0x...`);
-      console.log(`[server]   GET /api/defi-positions/:protocolId?address=0x...`);
       console.log(`[server]   GET /api/health`);
     });
   } catch (err) {

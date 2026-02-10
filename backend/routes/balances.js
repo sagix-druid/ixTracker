@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getMultiChainBalances, DUST_THRESHOLD_USD } = require('../services/moralis');
-const { getMultiChainDefiPositions, defiPositionsToHoldings } = require('../services/defi');
+const { getMultiChainBalances, fetchDefiPositions, DUST_THRESHOLD_USD } = require('../services/moralis');
 const { applyNavPricing } = require('../services/navPricing');
 const { recalculatePortfolioPercentages } = require('../services/calculations');
 
@@ -36,11 +35,11 @@ router.get('/', async (req, res) => {
     // ── Step 1: Fetch wallet token balances + DeFi positions in parallel ──
     const [balancesResult, defiResult] = await Promise.allSettled([
       getMultiChainBalances(walletAddress),
-      getMultiChainDefiPositions(walletAddress),
+      fetchDefiPositions(walletAddress),
     ]);
 
     let walletTokens = [];
-    let defiHoldings = [];
+    let defiPositions = [];
     const allErrors = [];
 
     if (balancesResult.status === 'fulfilled') {
@@ -58,12 +57,12 @@ router.get('/', async (req, res) => {
     }
 
     if (defiResult.status === 'fulfilled') {
-      defiHoldings = defiPositionsToHoldings(defiResult.value.positions);
+      defiPositions = defiResult.value.positions;
       allErrors.push(
         ...defiResult.value.errors.map((e) => ({ source: 'defi', ...e }))
       );
       console.log(
-        `[balances] DeFi positions converted to ${defiHoldings.length} holdings`
+        `[balances] Fetched ${defiPositions.length} DeFi positions`
       );
     } else {
       allErrors.push({
@@ -76,10 +75,35 @@ router.get('/', async (req, res) => {
       );
     }
 
-    // ── Step 2: Merge wallet tokens + DeFi holdings ──
-    // Deduplicate: if the same token appears in both wallet balances and
-    // DeFi positions (e.g., aToken in wallet AND in Aave supply), keep both
-    // but mark the DeFi one clearly so the UI can distinguish them.
+    // ── Step 2: Convert DeFi positions to holdings-compatible format and merge ──
+    const defiHoldings = [];
+    for (const pos of defiPositions) {
+      for (const token of pos.tokens) {
+        if (token.valueUsd < DUST_THRESHOLD_USD) continue;
+        defiHoldings.push({
+          chain: pos.chain,
+          chainId: pos.chainId,
+          tokenAddress: token.tokenAddress,
+          symbol: token.symbol,
+          name: token.name,
+          decimals: null,
+          balance: String(token.balance),
+          balanceFormatted: token.balance,
+          usdPrice: token.price || null,
+          usdValue: token.valueUsd || null,
+          logo: null,
+          thumbnail: null,
+          priceSource: token.price ? 'market' : null,
+          nativeToken: false,
+          portfolioPercentage: 0,
+          isDefiPosition: true,
+          defiProtocol: pos.protocol,
+          defiProtocolLogo: pos.protocolLogo,
+          defiPositionType: pos.positionType,
+        });
+      }
+    }
+
     let allTokens = [...walletTokens, ...defiHoldings];
 
     console.log(
