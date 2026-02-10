@@ -1,7 +1,7 @@
 const { initMoralis, SUPPORTED_CHAINS, delay } = require('./moralis');
 
 // Moralis DeFi Positions API — direct HTTP calls since the SDK
-// may not expose these newer endpoints yet.
+// may not expose these newer endpoints yet. Requires Node 18+ for global fetch.
 const MORALIS_API_BASE = 'https://deep-index.moralis.io/api/v2.2';
 
 function getApiKey() {
