@@ -158,11 +158,64 @@ async function getTokenPricesBatched(tokenRequests) {
   return prices;
 }
 
+/**
+ * Fetch DeFi positions (staked, deposited, LP positions) for a wallet.
+ * Uses Moralis Wallet API getDefiPositionsSummary endpoint.
+ *
+ * @param {string} walletAddress - The 0x wallet address
+ * @returns {object} { positions: Array, errors: Array }
+ */
+async function fetchDefiPositions(walletAddress) {
+  await initMoralis();
+
+  const positions = [];
+  const errors = [];
+
+  for (const chain of SUPPORTED_CHAINS) {
+    try {
+      const response = await Moralis.EvmApi.wallets.getDefiPositionsSummary({
+        address: walletAddress,
+        chain: chain.moralisChain,
+      });
+
+      const raw = response.result || [];
+
+      for (const position of raw) {
+        positions.push({
+          chain: chain.name,
+          chainId: chain.id,
+          protocol: position.protocolName || position.protocol?.name || 'Unknown',
+          protocolLogo: position.protocolLogo || position.protocol?.logo || null,
+          positionType: position.positionType || position.type || 'deposit',
+          tokens: (position.tokens || []).map((t) => ({
+            symbol: t.symbol,
+            name: t.name,
+            balance: parseFloat(t.balanceFormatted || t.balance || 0),
+            price: t.usdPrice || 0,
+            valueUsd: t.usdValue || 0,
+            tokenAddress: t.tokenAddress || null,
+          })),
+          totalValueUsd: position.totalUsdValue || position.usdValue || 0,
+        });
+      }
+
+      console.log(`[moralis] ${chain.name}: fetched ${raw.length} DeFi positions`);
+    } catch (err) {
+      const errorMsg = err?.message || String(err);
+      errors.push({ chain: chain.name, error: errorMsg });
+      console.error(`[moralis] ${chain.name} DeFi positions failed: ${errorMsg}`);
+    }
+  }
+
+  return { positions, errors };
+}
+
 module.exports = {
   initMoralis,
   SUPPORTED_CHAINS,
   DUST_THRESHOLD_USD,
   getMultiChainBalances,
+  fetchDefiPositions,
   getTokenPrice,
   getTokenPricesBatched,
   batchedRequests,
