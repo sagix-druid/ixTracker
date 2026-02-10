@@ -11,8 +11,25 @@ const defiPositionsRouter = require('./routes/defi-positions');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors());
+// CORS — restrict origins in production via ALLOWED_ORIGINS env var
+// Comma-separated list, e.g. "https://sagix.io,https://www.sagix.io"
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+  : null; // null = allow all in dev
+
+app.use(
+  cors({
+    origin: allowedOrigins
+      ? (origin, cb) => {
+          if (!origin || allowedOrigins.includes(origin)) {
+            cb(null, true);
+          } else {
+            cb(new Error(`Origin ${origin} not allowed by CORS`));
+          }
+        }
+      : true,
+  })
+);
 app.use(express.json());
 
 // Routes
