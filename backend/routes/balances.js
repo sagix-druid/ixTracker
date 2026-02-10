@@ -1,0 +1,163 @@
+const express = require('express');
+const router = express.Router();
+const { getMultiChainBalances, DUST_THRESHOLD_USD } = require('../services/moralis');
+const { getMultiChainDefiPositions, defiPositionsToHoldings } = require('../services/defi');
+const { applyNavPricing } = require('../services/navPricing');
+const { recalculatePortfolioPercentages } = require('../services/calculations');
+
+// GET /api/balances?address=0x...
+//
+// Returns the full merged portfolio:
+//   1. Wallet token balances from Moralis (multi-chain)
+//   2. DeFi positions (staked, supplied, LP'd) from Moralis DeFi API
+//   3. NAV-priced DTF tokens (ixEDEL, ixETH, etc.) via on-chain calls
+//
+// Response shape:
+// {
+//   address, totalUsdValue, tokens: [...],
+//   defiPositionsIncluded: true,
+//   navPricingApplied: true,
+//   disclaimer, errors
+// }
+router.get('/', async (req, res) => {
+  const { address } = req.query;
+
+  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    return res.status(400).json({
+      error: 'Valid Ethereum address required (query param: address)',
+    });
+  }
+
+  const walletAddress = address.toLowerCase();
+
+  try {
+    console.log(`\n[balances] Fetching full portfolio for ${walletAddress}`);
+
+    // ── Step 1: Fetch wallet token balances + DeFi positions in parallel ──
+    const [balancesResult, defiResult] = await Promise.allSettled([
+      getMultiChainBalances(walletAddress),
+      getMultiChainDefiPositions(walletAddress),
+    ]);
+
+    let walletTokens = [];
+    let defiHoldings = [];
+    const allErrors = [];
+
+    if (balancesResult.status === 'fulfilled') {
+      walletTokens = balancesResult.value.tokens;
+      allErrors.push(...balancesResult.value.errors);
+    } else {
+      allErrors.push({
+        source: 'balances',
+        error: balancesResult.reason?.message || 'Failed to fetch balances',
+      });
+      console.error(
+        '[balances] Balance fetch failed:',
+        balancesResult.reason?.message
+      );
+    }
+
+    if (defiResult.status === 'fulfilled') {
+      defiHoldings = defiPositionsToHoldings(defiResult.value.positions);
+      allErrors.push(
+        ...defiResult.value.errors.map((e) => ({ source: 'defi', ...e }))
+      );
+      console.log(
+        `[balances] DeFi positions converted to ${defiHoldings.length} holdings`
+      );
+    } else {
+      allErrors.push({
+        source: 'defi',
+        error: defiResult.reason?.message || 'Failed to fetch DeFi positions',
+      });
+      console.error(
+        '[balances] DeFi fetch failed:',
+        defiResult.reason?.message
+      );
+    }
+
+    // ── Step 2: Merge wallet tokens + DeFi holdings ──
+    // Deduplicate: if the same token appears in both wallet balances and
+    // DeFi positions (e.g., aToken in wallet AND in Aave supply), keep both
+    // but mark the DeFi one clearly so the UI can distinguish them.
+    let allTokens = [...walletTokens, ...defiHoldings];
+
+    console.log(
+      `[balances] Merged: ${walletTokens.length} wallet + ${defiHoldings.length} DeFi = ${allTokens.length} total`
+    );
+
+    // ── Step 3: Apply NAV pricing for tokens with null price ──
+    // This attempts on-chain Reserve Protocol calls for DTF tokens
+    const nullPriceCount = allTokens.filter((t) => t.usdPrice === null).length;
+    if (nullPriceCount > 0) {
+      console.log(
+        `[balances] ${nullPriceCount} tokens with null price — applying NAV pricing`
+      );
+      allTokens = await applyNavPricing(allTokens);
+    }
+
+    // ── Step 4: Final dust filter (after NAV pricing may have filled in values) ──
+    allTokens = allTokens.filter(
+      (t) => t.usdValue === null || t.usdValue >= DUST_THRESHOLD_USD
+    );
+
+    // ── Step 5: Recalculate portfolio percentages across the merged set ──
+    allTokens = recalculatePortfolioPercentages(allTokens);
+
+    // ── Step 6: Sort by USD value descending ──
+    allTokens.sort((a, b) => (b.usdValue || 0) - (a.usdValue || 0));
+
+    // ── Compute totals ──
+    const totalUsdValue = allTokens.reduce(
+      (sum, t) => sum + (t.usdValue || 0),
+      0
+    );
+    const totalWalletValue = walletTokens.reduce(
+      (sum, t) => sum + (t.usdValue || 0),
+      0
+    );
+    const totalDefiValue = defiHoldings.reduce(
+      (sum, t) => sum + (t.usdValue || 0),
+      0
+    );
+    const navPricedTokens = allTokens.filter(
+      (t) => t.priceSource === 'nav'
+    );
+    const navPricedValue = navPricedTokens.reduce(
+      (sum, t) => sum + (t.usdValue || 0),
+      0
+    );
+
+    console.log(`[balances] Portfolio summary:`);
+    console.log(`[balances]   Wallet tokens: $${totalWalletValue.toFixed(2)}`);
+    console.log(`[balances]   DeFi positions: $${totalDefiValue.toFixed(2)}`);
+    console.log(`[balances]   NAV-priced: $${navPricedValue.toFixed(2)} (${navPricedTokens.length} tokens)`);
+    console.log(`[balances]   Total: $${totalUsdValue.toFixed(2)}`);
+    console.log(`[balances]   Tokens: ${allTokens.length}`);
+
+    res.json({
+      address: walletAddress,
+      totalUsdValue,
+      breakdown: {
+        walletTokensValue: totalWalletValue,
+        defiPositionsValue: totalDefiValue,
+        navPricedValue,
+      },
+      tokenCount: allTokens.length,
+      tokens: allTokens,
+      defiPositionsIncluded: defiResult.status === 'fulfilled',
+      navPricingApplied: navPricedTokens.length > 0,
+      disclaimer:
+        'Cost basis estimated from on-chain data. DeFi positions sourced from Moralis. NAV pricing calculated from on-chain basket composition.',
+      errors: allErrors.length > 0 ? allErrors : undefined,
+    });
+  } catch (err) {
+    console.error('[balances] Unhandled error:', err);
+    res.status(500).json({
+      error: 'Failed to fetch portfolio data',
+      message: err.message,
+    });
+  }
+});
+
+module.exports = router;
