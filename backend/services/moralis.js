@@ -180,6 +180,9 @@ async function fetchDefiPositions(walletAddress) {
 
       const raw = response.result || [];
 
+      // Debug: log the raw Moralis response to understand the actual schema
+      console.log(`[moralis] ${chain.name} raw DeFi response:`, JSON.stringify(raw, null, 2));
+
       for (const position of raw) {
         positions.push({
           chain: chain.name,
