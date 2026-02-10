@@ -89,8 +89,9 @@ async function calculateRTokenNAV(rTokenAddress, chainId) {
   );
 
   // Step 1: Get RToken decimals
+  // ethers v6 returns BigInt for uint8 — cast to Number for parseUnits
   const rToken = new ethers.Contract(rTokenAddress, RTOKEN_ABI, provider);
-  const rTokenDecimals = await rToken.decimals();
+  const rTokenDecimals = Number(await rToken.decimals());
   const oneUnit = ethers.parseUnits('1', rTokenDecimals);
 
   // Step 2: Get Main contract
@@ -111,7 +112,8 @@ async function calculateRTokenNAV(rTokenAddress, chainId) {
   );
 
   // Check basket status (0 = SOUND, 1 = IFFY, 2 = DISABLED)
-  const status = await basketHandler.status();
+  // ethers v6 returns BigInt for uint8 — cast to Number for safe comparison
+  const status = Number(await basketHandler.status());
   if (status === 2) {
     console.warn(`[nav]   Basket is DISABLED for ${rTokenAddress}`);
     return null;
@@ -144,10 +146,12 @@ async function calculateRTokenNAV(rTokenAddress, chainId) {
     const tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
     let tokenDecimals, tokenSymbol;
     try {
-      [tokenDecimals, tokenSymbol] = await Promise.all([
+      const [rawDecimals, rawSymbol] = await Promise.all([
         tokenContract.decimals(),
         tokenContract.symbol(),
       ]);
+      tokenDecimals = Number(rawDecimals);
+      tokenSymbol = rawSymbol;
     } catch (err) {
       console.warn(
         `[nav]   Could not read metadata for ${tokenAddr}: ${err.message}`
@@ -213,7 +217,7 @@ async function calculateRTokenNAV(rTokenAddress, chainId) {
     allUnderlyingPriced: allPriced,
     pricedCount,
     totalUnderlying: basketTokens.length,
-    basketStatus: status === 0 ? 'SOUND' : 'IFFY',
+    basketStatus: status === 0 ? 'SOUND' : status === 1 ? 'IFFY' : 'UNKNOWN',
   };
 
   console.log(
@@ -244,22 +248,19 @@ async function applyNavPricing(tokens, extraDtfAddresses = []) {
     dtfAddressesByChain[chainId].add(address.toLowerCase());
   }
 
-  // Find tokens with null price that might be DTFs
+  // Find tokens with null price that are known DTFs.
+  // Only attempt on-chain NAV calls for tokens we know are RTokens —
+  // calling quote() on random unpriced tokens would be slow and noisy.
   const tokensNeedingNav = tokens.filter((t) => {
     if (t.usdPrice !== null) return false;
     if (!t.tokenAddress) return false;
 
-    // Check if it's a known DTF
     const knownSet = dtfAddressesByChain[t.chainId];
-    if (knownSet && knownSet.has(t.tokenAddress.toLowerCase())) return true;
-
-    // Also try any token with null price — it might be a DTF we don't know about yet
-    // We'll attempt the contract call and handle failure gracefully
-    return true;
+    return knownSet && knownSet.has(t.tokenAddress.toLowerCase());
   });
 
   console.log(
-    `[nav] ${tokensNeedingNav.length} tokens with null price — attempting NAV pricing`
+    `[nav] ${tokensNeedingNav.length} known DTFs with null price — attempting NAV pricing`
   );
 
   // Calculate NAV for each, with error handling per token

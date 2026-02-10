@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Backend API for Sagix Portfolio Tracker — real data from Moralis + on-chain calls",
   "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js"
@@ -12,7 +15,6 @@
     "dotenv": "^16.4.7",
     "ethers": "^6.13.4",
     "express": "^4.21.1",
-    "moralis": "^2.27.2",
-    "node-fetch": "^3.3.2"
+    "moralis": "^2.27.2"
   }
 }
