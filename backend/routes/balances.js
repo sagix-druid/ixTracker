@@ -79,8 +79,6 @@ router.get('/', async (req, res) => {
     const defiHoldings = [];
     for (const pos of defiPositions) {
       for (const token of pos.tokens) {
-        // Allow tokens with null price through (they may get priced later by NAV pricing).
-        // Only filter out tokens that have a known value below dust threshold.
         if (token.valueUsd !== null && token.valueUsd < DUST_THRESHOLD_USD) continue;
         defiHoldings.push({
           chain: pos.chain,
@@ -106,30 +104,30 @@ router.get('/', async (req, res) => {
       }
     }
 
-    // ── Step 2b: Enrich empty DeFi positions from wallet tokens ──
-    // Moralis getDefiPositionsSummary often detects protocols (EtherFi, Lido, etc.)
-    // but returns empty token arrays. When this happens, cross-reference wallet tokens
-    // with known protocol-to-token mappings to attribute value to the DeFi position.
+    // ── Step 2b: Tag wallet tokens that are known DeFi/staking positions ──
+    // Moralis getDefiPositionsSummary detects protocols but often returns unusable
+    // token data. Instead of relying on the DeFi response, directly tag wallet
+    // tokens using the known protocol-to-token address mapping.
+    // Build a logo lookup from detected DeFi positions for UI purposes.
+    const protocolLogos = {};
     for (const pos of defiPositions) {
-      // Skip only if Moralis returned tokens with actual value.
-      // Moralis often returns tokens with zero price/value — those still need enrichment.
-      const hasValuedTokens = pos.tokens.some((t) => (t.valueUsd || 0) >= DUST_THRESHOLD_USD);
-      if (hasValuedTokens) continue;
+      if (pos.protocolLogo) {
+        protocolLogos[pos.protocol] = pos.protocolLogo;
+      }
+    }
 
-      const protocolAddresses = DEFI_PROTOCOL_TOKENS[pos.protocol]?.[pos.chainId] || [];
-      for (const tokenAddr of protocolAddresses) {
-        const walletToken = walletTokens.find(
-          (t) => t.tokenAddress === tokenAddr && t.chainId === pos.chainId
-        );
-        if (walletToken && (walletToken.usdValue || 0) >= DUST_THRESHOLD_USD) {
-          // Tag the wallet token as belonging to this DeFi protocol.
-          // This does NOT duplicate the token — it annotates the existing entry.
-          walletToken.isDefiPosition = true;
-          walletToken.defiProtocol = pos.protocol;
-          walletToken.defiProtocolLogo = pos.protocolLogo;
-          walletToken.defiPositionType = pos.positionType;
+    console.log('[balances] Tagging known staking tokens as DeFi positions...');
+    for (const token of walletTokens) {
+      if (!token.tokenAddress) continue;
+      for (const [protocol, chains] of Object.entries(DEFI_PROTOCOL_TOKENS)) {
+        const addresses = chains[token.chainId] || [];
+        if (addresses.includes(token.tokenAddress)) {
+          token.isDefiPosition = true;
+          token.defiProtocol = protocol;
+          token.defiProtocolLogo = protocolLogos[protocol] || null;
+          token.defiPositionType = 'staking';
           console.log(
-            `[balances] Matched ${walletToken.symbol} ($${(walletToken.usdValue || 0).toFixed(2)}) to DeFi protocol ${pos.protocol}`
+            `[balances]   Tagged ${token.symbol} ($${(token.usdValue || 0).toFixed(2)}) as ${protocol} staking position`
           );
         }
       }
