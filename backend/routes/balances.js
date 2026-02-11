@@ -79,21 +79,23 @@ router.get('/', async (req, res) => {
     const defiHoldings = [];
     for (const pos of defiPositions) {
       for (const token of pos.tokens) {
-        if (token.valueUsd < DUST_THRESHOLD_USD) continue;
+        // Allow tokens with null price through (they may get priced later by NAV pricing).
+        // Only filter out tokens that have a known value below dust threshold.
+        if (token.valueUsd !== null && token.valueUsd < DUST_THRESHOLD_USD) continue;
         defiHoldings.push({
           chain: pos.chain,
           chainId: pos.chainId,
           tokenAddress: token.tokenAddress,
           symbol: token.symbol,
           name: token.name,
-          decimals: null,
+          decimals: token.decimals || null,
           balance: String(token.balance),
           balanceFormatted: token.balance,
-          usdPrice: token.price || null,
-          usdValue: token.valueUsd || null,
+          usdPrice: token.price ?? null,
+          usdValue: token.valueUsd ?? null,
           logo: null,
           thumbnail: null,
-          priceSource: token.price ? 'market' : null,
+          priceSource: token.price ? 'defi' : null,
           nativeToken: false,
           portfolioPercentage: 0,
           isDefiPosition: true,

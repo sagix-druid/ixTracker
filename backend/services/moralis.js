@@ -180,30 +180,137 @@ async function fetchDefiPositions(walletAddress) {
 
       const raw = response.result || [];
 
-      for (const position of raw) {
+      for (const pos of raw) {
+        // Moralis nests token data under pos.position (an inner object with label, tokens, balanceUsd).
+        // The outer object has protocolName, protocolLogo, etc.
+        const positionData = pos.position || {};
+        const tokenList = positionData.tokens || pos.tokens || [];
+
+        const mappedTokens = tokenList.map((t) => {
+          const balance = parseFloat(
+            t.balanceFormatted || t.balance_formatted || t.balance || 0
+          );
+          const price = t.usdPrice ?? t.usd_price ?? null;
+          const valueUsd = t.usdValue ?? t.usd_value ?? null;
+          const computedValue =
+            valueUsd !== null
+              ? valueUsd
+              : price !== null && balance > 0
+                ? balance * price
+                : null;
+
+          return {
+            symbol: t.symbol,
+            name: t.name,
+            balance,
+            price,
+            valueUsd: computedValue,
+            tokenAddress: t.tokenAddress || t.address || t.token_address || null,
+            decimals: t.decimals ? Number(t.decimals) : 18,
+          };
+        });
+
+        const totalFromTokens = mappedTokens.reduce(
+          (sum, t) => sum + (t.valueUsd || 0),
+          0
+        );
+        const totalValueUsd =
+          positionData.balanceUsd ||
+          positionData.balance_usd ||
+          pos.totalUsdValue ||
+          pos.usdValue ||
+          totalFromTokens ||
+          0;
+
         positions.push({
           chain: chain.name,
           chainId: chain.id,
-          protocol: position.protocolName || position.protocol?.name || 'Unknown',
-          protocolLogo: position.protocolLogo || position.protocol?.logo || null,
-          positionType: position.positionType || position.type || 'deposit',
-          tokens: (position.tokens || []).map((t) => ({
-            symbol: t.symbol,
-            name: t.name,
-            balance: parseFloat(t.balanceFormatted || t.balance || 0),
-            price: t.usdPrice || 0,
-            valueUsd: t.usdValue || 0,
-            tokenAddress: t.tokenAddress || null,
-          })),
-          totalValueUsd: position.totalUsdValue || position.usdValue || 0,
+          protocol: pos.protocolName || pos.protocol?.name || 'Unknown',
+          protocolLogo: pos.protocolLogo || pos.protocol?.logo || null,
+          positionType: positionData.label || pos.positionType || pos.type || 'deposit',
+          tokens: mappedTokens,
+          totalValueUsd,
         });
       }
 
       console.log(`[moralis] ${chain.name}: fetched ${raw.length} DeFi positions`);
+      if (raw.length > 0) {
+        // Log structure of first position for debugging
+        const first = raw[0];
+        console.log(
+          `[moralis]   First position keys: ${Object.keys(first).join(', ')}`
+        );
+        if (first.position) {
+          console.log(
+            `[moralis]   position.position keys: ${Object.keys(first.position).join(', ')}`
+          );
+          const innerTokens = first.position.tokens || [];
+          console.log(
+            `[moralis]   position.position.tokens count: ${innerTokens.length}`
+          );
+          if (innerTokens.length > 0) {
+            console.log(
+              `[moralis]   First token keys: ${Object.keys(innerTokens[0]).join(', ')}`
+            );
+          }
+        }
+      }
     } catch (err) {
       const errorMsg = err?.message || String(err);
       errors.push({ chain: chain.name, error: errorMsg });
       console.error(`[moralis] ${chain.name} DeFi positions failed: ${errorMsg}`);
+    }
+  }
+
+  // Price DeFi position tokens that have addresses but no prices
+  const unpricedTokens = [];
+  for (const pos of positions) {
+    for (const token of pos.tokens) {
+      if (token.price === null && token.tokenAddress) {
+        unpricedTokens.push({
+          token,
+          chain: SUPPORTED_CHAINS.find((c) => c.id === pos.chainId),
+        });
+      }
+    }
+  }
+
+  if (unpricedTokens.length > 0) {
+    console.log(
+      `[moralis] Pricing ${unpricedTokens.length} DeFi tokens via getTokenPrice`
+    );
+    const priceFns = unpricedTokens.map(
+      ({ token, chain: chainConfig }) =>
+        () =>
+          getTokenPrice(token.tokenAddress, chainConfig).then((price) => ({
+            tokenAddress: token.tokenAddress,
+            price,
+          }))
+    );
+
+    const priceResults = await batchedRequests(priceFns);
+    for (const result of priceResults) {
+      if (result.status === 'fulfilled' && result.value?.price?.usdPrice) {
+        const { tokenAddress, price } = result.value;
+        // Apply price to all matching tokens across positions
+        for (const pos of positions) {
+          for (const token of pos.tokens) {
+            if (
+              token.tokenAddress === tokenAddress &&
+              token.price === null
+            ) {
+              token.price = price.usdPrice;
+              token.valueUsd =
+                token.balance > 0 ? token.balance * price.usdPrice : 0;
+            }
+          }
+          // Recalculate position total
+          pos.totalValueUsd = pos.tokens.reduce(
+            (sum, t) => sum + (t.valueUsd || 0),
+            0
+          );
+        }
+      }
     }
   }
 
