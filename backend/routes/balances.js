@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getMultiChainBalances, fetchDefiPositions, DUST_THRESHOLD_USD } = require('../services/moralis');
+const { getMultiChainBalances, fetchDefiPositions, DUST_THRESHOLD_USD, DEFI_PROTOCOL_TOKENS } = require('../services/moralis');
 const { applyNavPricing } = require('../services/navPricing');
 const { recalculatePortfolioPercentages } = require('../services/calculations');
 
@@ -79,21 +79,21 @@ router.get('/', async (req, res) => {
     const defiHoldings = [];
     for (const pos of defiPositions) {
       for (const token of pos.tokens) {
-        if (token.valueUsd < DUST_THRESHOLD_USD) continue;
+        if (token.valueUsd !== null && token.valueUsd < DUST_THRESHOLD_USD) continue;
         defiHoldings.push({
           chain: pos.chain,
           chainId: pos.chainId,
           tokenAddress: token.tokenAddress,
           symbol: token.symbol,
           name: token.name,
-          decimals: null,
+          decimals: token.decimals || null,
           balance: String(token.balance),
           balanceFormatted: token.balance,
-          usdPrice: token.price || null,
-          usdValue: token.valueUsd || null,
+          usdPrice: token.price ?? null,
+          usdValue: token.valueUsd ?? null,
           logo: null,
           thumbnail: null,
-          priceSource: token.price ? 'market' : null,
+          priceSource: token.price ? 'defi' : null,
           nativeToken: false,
           portfolioPercentage: 0,
           isDefiPosition: true,
@@ -101,6 +101,35 @@ router.get('/', async (req, res) => {
           defiProtocolLogo: pos.protocolLogo,
           defiPositionType: pos.positionType,
         });
+      }
+    }
+
+    // ── Step 2b: Tag wallet tokens that are known DeFi/staking positions ──
+    // Moralis getDefiPositionsSummary detects protocols but often returns unusable
+    // token data. Instead of relying on the DeFi response, directly tag wallet
+    // tokens using the known protocol-to-token address mapping.
+    // Build a logo lookup from detected DeFi positions for UI purposes.
+    const protocolLogos = {};
+    for (const pos of defiPositions) {
+      if (pos.protocolLogo) {
+        protocolLogos[pos.protocol] = pos.protocolLogo;
+      }
+    }
+
+    console.log('[balances] Tagging known staking tokens as DeFi positions...');
+    for (const token of walletTokens) {
+      if (!token.tokenAddress) continue;
+      for (const [protocol, chains] of Object.entries(DEFI_PROTOCOL_TOKENS)) {
+        const addresses = chains[token.chainId] || [];
+        if (addresses.includes(token.tokenAddress)) {
+          token.isDefiPosition = true;
+          token.defiProtocol = protocol;
+          token.defiProtocolLogo = protocolLogos[protocol] || null;
+          token.defiPositionType = 'staking';
+          console.log(
+            `[balances]   Tagged ${token.symbol} ($${(token.usdValue || 0).toFixed(2)}) as ${protocol} staking position`
+          );
+        }
       }
     }
 
@@ -136,14 +165,16 @@ router.get('/', async (req, res) => {
       (sum, t) => sum + (t.usdValue || 0),
       0
     );
-    const totalWalletValue = walletTokens.reduce(
+    // DeFi value = tokens from DeFi holdings + wallet tokens tagged as DeFi positions
+    const totalDefiValue =
+      defiHoldings.reduce((sum, t) => sum + (t.usdValue || 0), 0) +
+      walletTokens
+        .filter((t) => t.isDefiPosition)
+        .reduce((sum, t) => sum + (t.usdValue || 0), 0);
+    const totalWalletValue = allTokens.reduce(
       (sum, t) => sum + (t.usdValue || 0),
       0
-    );
-    const totalDefiValue = defiHoldings.reduce(
-      (sum, t) => sum + (t.usdValue || 0),
-      0
-    );
+    ) - totalDefiValue;
     const navPricedTokens = allTokens.filter(
       (t) => t.priceSource === 'nav'
     );

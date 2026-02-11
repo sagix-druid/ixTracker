@@ -47,10 +47,8 @@ const ERC20_ABI = [
 const KNOWN_DTFS = {
   // Ethereum mainnet
   1: [
-    // Add ixEDEL, ixETH, ETH+ addresses here when known.
-    // Example format:
-    // { symbol: 'ixEDEL', address: '0x...' },
-    // { symbol: 'ETH+', address: '0xE72B141DF173b999AE7c1aDcbF60Cc9833Ce56a8' },
+    { symbol: 'ixEdel', address: '0xe4a10951f962e6cb93cb843a4ef05d2f99db1f94' },
+    { symbol: 'ixETH', address: '0x60105cbd0499199ca84f63ee9198b2a2d5441699' },
   ],
   // Base
   8453: [
