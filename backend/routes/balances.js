@@ -111,7 +111,10 @@ router.get('/', async (req, res) => {
     // but returns empty token arrays. When this happens, cross-reference wallet tokens
     // with known protocol-to-token mappings to attribute value to the DeFi position.
     for (const pos of defiPositions) {
-      if (pos.tokens.length > 0) continue; // Already has token data from Moralis
+      // Skip only if Moralis returned tokens with actual value.
+      // Moralis often returns tokens with zero price/value — those still need enrichment.
+      const hasValuedTokens = pos.tokens.some((t) => (t.valueUsd || 0) >= DUST_THRESHOLD_USD);
+      if (hasValuedTokens) continue;
 
       const protocolAddresses = DEFI_PROTOCOL_TOKENS[pos.protocol]?.[pos.chainId] || [];
       for (const tokenAddr of protocolAddresses) {

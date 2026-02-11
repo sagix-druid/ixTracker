@@ -51,7 +51,8 @@ router.get('/', async (req, res) => {
       const walletTokens = balancesResult.value.tokens;
 
       for (const pos of positions) {
-        if (pos.tokens.length > 0) continue;
+        const hasValuedTokens = pos.tokens.some((t) => (t.valueUsd || 0) >= 1.0);
+        if (hasValuedTokens) continue;
 
         const protocolAddresses = DEFI_PROTOCOL_TOKENS[pos.protocol]?.[pos.chainId] || [];
         for (const tokenAddr of protocolAddresses) {
