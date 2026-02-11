@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getMultiChainBalances, fetchDefiPositions, DUST_THRESHOLD_USD } = require('../services/moralis');
+const { getMultiChainBalances, fetchDefiPositions, DUST_THRESHOLD_USD, DEFI_PROTOCOL_TOKENS } = require('../services/moralis');
 const { applyNavPricing } = require('../services/navPricing');
 const { recalculatePortfolioPercentages } = require('../services/calculations');
 
@@ -106,6 +106,32 @@ router.get('/', async (req, res) => {
       }
     }
 
+    // ── Step 2b: Enrich empty DeFi positions from wallet tokens ──
+    // Moralis getDefiPositionsSummary often detects protocols (EtherFi, Lido, etc.)
+    // but returns empty token arrays. When this happens, cross-reference wallet tokens
+    // with known protocol-to-token mappings to attribute value to the DeFi position.
+    for (const pos of defiPositions) {
+      if (pos.tokens.length > 0) continue; // Already has token data from Moralis
+
+      const protocolAddresses = DEFI_PROTOCOL_TOKENS[pos.protocol]?.[pos.chainId] || [];
+      for (const tokenAddr of protocolAddresses) {
+        const walletToken = walletTokens.find(
+          (t) => t.tokenAddress === tokenAddr && t.chainId === pos.chainId
+        );
+        if (walletToken && (walletToken.usdValue || 0) >= DUST_THRESHOLD_USD) {
+          // Tag the wallet token as belonging to this DeFi protocol.
+          // This does NOT duplicate the token — it annotates the existing entry.
+          walletToken.isDefiPosition = true;
+          walletToken.defiProtocol = pos.protocol;
+          walletToken.defiProtocolLogo = pos.protocolLogo;
+          walletToken.defiPositionType = pos.positionType;
+          console.log(
+            `[balances] Matched ${walletToken.symbol} ($${(walletToken.usdValue || 0).toFixed(2)}) to DeFi protocol ${pos.protocol}`
+          );
+        }
+      }
+    }
+
     let allTokens = [...walletTokens, ...defiHoldings];
 
     console.log(
@@ -138,14 +164,16 @@ router.get('/', async (req, res) => {
       (sum, t) => sum + (t.usdValue || 0),
       0
     );
-    const totalWalletValue = walletTokens.reduce(
+    // DeFi value = tokens from DeFi holdings + wallet tokens tagged as DeFi positions
+    const totalDefiValue =
+      defiHoldings.reduce((sum, t) => sum + (t.usdValue || 0), 0) +
+      walletTokens
+        .filter((t) => t.isDefiPosition)
+        .reduce((sum, t) => sum + (t.usdValue || 0), 0);
+    const totalWalletValue = allTokens.reduce(
       (sum, t) => sum + (t.usdValue || 0),
       0
-    );
-    const totalDefiValue = defiHoldings.reduce(
-      (sum, t) => sum + (t.usdValue || 0),
-      0
-    );
+    ) - totalDefiValue;
     const navPricedTokens = allTokens.filter(
       (t) => t.priceSource === 'nav'
     );

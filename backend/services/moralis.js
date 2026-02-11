@@ -9,6 +9,28 @@ const SUPPORTED_CHAINS = [
 
 const DUST_THRESHOLD_USD = 1.0;
 
+// Known associations between DeFi protocols (as reported by Moralis getDefiPositionsSummary)
+// and the liquid staking / receipt token addresses held in wallets.
+// When Moralis detects a protocol but returns no token details, we cross-reference
+// wallet tokens using this map to attribute value to the DeFi position.
+const DEFI_PROTOCOL_TOKENS = {
+  'EtherFi': {
+    1: [
+      '0xcd5fe23c85820f7b72d0926fc9b05b43e359b7ee', // weETH
+    ],
+  },
+  'Rocket Pool': {
+    1: [
+      '0xae78736cd615f374d3085123a210448e74fc6393', // rETH
+    ],
+  },
+  'Lido': {
+    1: [
+      '0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0', // wstETH
+    ],
+  },
+};
+
 let moralisInitialized = false;
 
 async function initMoralis() {
@@ -321,6 +343,7 @@ module.exports = {
   initMoralis,
   SUPPORTED_CHAINS,
   DUST_THRESHOLD_USD,
+  DEFI_PROTOCOL_TOKENS,
   getMultiChainBalances,
   fetchDefiPositions,
   getTokenPrice,
