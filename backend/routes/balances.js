@@ -133,7 +133,24 @@ router.get('/', async (req, res) => {
       }
     }
 
-    let allTokens = [...walletTokens, ...defiHoldings];
+    // ── Step 2c: Deduplicate — remove DeFi holdings that duplicate tagged wallet tokens ──
+    // When a wallet token (e.g. weETH) is already tagged as EtherFi staking,
+    // drop the corresponding DeFi holding to avoid double-counting.
+    const taggedKeys = new Set(
+      walletTokens
+        .filter((t) => t.isDefiPosition)
+        .map((t) => `${t.chainId}:${t.symbol}`)
+    );
+    const dedupedDefi = defiHoldings.filter(
+      (t) => !taggedKeys.has(`${t.chainId}:${t.symbol}`)
+    );
+    if (dedupedDefi.length < defiHoldings.length) {
+      console.log(
+        `[balances] Deduped: removed ${defiHoldings.length - dedupedDefi.length} DeFi holdings already present as wallet tokens`
+      );
+    }
+
+    let allTokens = [...walletTokens, ...dedupedDefi];
 
     console.log(
       `[balances] Merged: ${walletTokens.length} wallet + ${defiHoldings.length} DeFi = ${allTokens.length} total`
@@ -167,7 +184,7 @@ router.get('/', async (req, res) => {
     );
     // DeFi value = tokens from DeFi holdings + wallet tokens tagged as DeFi positions
     const totalDefiValue =
-      defiHoldings.reduce((sum, t) => sum + (t.usdValue || 0), 0) +
+      dedupedDefi.reduce((sum, t) => sum + (t.usdValue || 0), 0) +
       walletTokens
         .filter((t) => t.isDefiPosition)
         .reduce((sum, t) => sum + (t.usdValue || 0), 0);

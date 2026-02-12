@@ -227,7 +227,7 @@ async function fetchDefiPositions(walletAddress) {
             balance,
             price,
             valueUsd: computedValue,
-            tokenAddress: t.tokenAddress || t.address || t.token_address || null,
+            tokenAddress: t.tokenAddress || t.contractAddress || t.address || t.token_address || null,
             decimals: t.decimals ? Number(t.decimals) : 18,
           };
         });
