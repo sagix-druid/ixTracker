@@ -1,8 +1,40 @@
 const express = require('express');
 const router = express.Router();
-const { getMultiChainBalances, fetchDefiPositions, DUST_THRESHOLD_USD, DEFI_PROTOCOL_TOKENS } = require('../services/moralis');
+const { getMultiChainBalances, fetchDefiPositions, DUST_THRESHOLD_USD, DEFI_PROTOCOL_TOKENS, getTokenPrice, SUPPORTED_CHAINS } = require('../services/moralis');
 const { applyNavPricing } = require('../services/navPricing');
 const { recalculatePortfolioPercentages } = require('../services/calculations');
+
+// ── Spam/scam token detection ──
+// Heuristic patterns for token names that indicate airdrop scams
+const SPAM_NAME_PATTERNS = [
+  /t\.me\//i,        // Telegram links in token name
+  /https?:\/\//i,    // URLs in token name
+  /\.com\b/i,        // Domain names in token name
+  /\bvisit\b/i,      // "Visit xyz" scam prompt
+];
+
+// Known spam symbols per chain (use sparingly — prefer address-based blocking)
+const SPAM_SYMBOLS = {
+  1: new Set(['ETHG']),
+};
+
+function isSpamToken(token) {
+  const chainSpam = SPAM_SYMBOLS[token.chainId];
+  if (chainSpam && chainSpam.has(token.symbol)) return true;
+  const nameToCheck = `${token.name || ''} ${token.symbol || ''}`;
+  return SPAM_NAME_PATTERNS.some((p) => p.test(nameToCheck));
+}
+
+// ── Price redirect for tokens with known wrong Moralis market prices ──
+// sETHFI: Moralis returns ~$885/token (from a thin/manipulated DEX pool)
+// but sETHFI is a staking receipt for ETHFI, so its price ≈ ETHFI price
+const PRICE_REDIRECTS = {
+  '0x86b5780b606940eb59a062aa85a07959518c0161': {
+    chainId: 1,
+    lookupAddress: '0xfe0c30065b384f05761f15d0cc899d4f9f9cc0eb', // ETHFI
+    note: 'sETHFI ≈ ETHFI price (staking receipt)',
+  },
+};
 
 // GET /api/balances?address=0x...
 //
@@ -73,6 +105,43 @@ router.get('/', async (req, res) => {
         '[balances] DeFi fetch failed:',
         defiResult.reason?.message
       );
+    }
+
+    // ── Step 1b: Filter spam/scam tokens from wallet ──
+    const preSpamCount = walletTokens.length;
+    walletTokens = walletTokens.filter((t) => {
+      if (isSpamToken(t)) {
+        console.log(`[balances] Filtered spam: ${t.symbol} ($${(t.usdValue || 0).toFixed(2)}) on ${t.chain}`);
+        return false;
+      }
+      return true;
+    });
+    if (walletTokens.length < preSpamCount) {
+      console.log(`[balances] Removed ${preSpamCount - walletTokens.length} spam token(s)`);
+    }
+
+    // ── Step 1c: Fix known mispriced tokens via price redirect ──
+    for (const token of walletTokens) {
+      if (!token.tokenAddress) continue;
+      const redirect = PRICE_REDIRECTS[token.tokenAddress.toLowerCase()];
+      if (redirect) {
+        const chain = SUPPORTED_CHAINS.find((c) => c.id === redirect.chainId);
+        if (chain) {
+          try {
+            const priceData = await getTokenPrice(redirect.lookupAddress, chain);
+            if (priceData?.usdPrice) {
+              console.log(
+                `[balances] Price redirect: ${token.symbol} $${token.usdPrice?.toFixed(2)} → $${priceData.usdPrice.toFixed(4)} (${redirect.note})`
+              );
+              token.usdPrice = priceData.usdPrice;
+              token.usdValue = token.balanceFormatted * priceData.usdPrice;
+              token.priceSource = 'redirect';
+            }
+          } catch (err) {
+            console.warn(`[balances] Price redirect failed for ${token.symbol}: ${err.message}`);
+          }
+        }
+      }
     }
 
     // ── Step 2: Convert DeFi positions to holdings-compatible format and merge ──

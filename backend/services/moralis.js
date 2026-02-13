@@ -17,6 +17,7 @@ const DEFI_PROTOCOL_TOKENS = {
   'EtherFi': {
     1: [
       '0xcd5fe23c85820f7b72d0926fc9b05b43e359b7ee', // weETH
+      '0x86b5780b606940eb59a062aa85a07959518c0161', // sETHFI (staked ETHFI)
     ],
   },
   'Rocket Pool': {
@@ -27,6 +28,49 @@ const DEFI_PROTOCOL_TOKENS = {
   'Lido': {
     1: [
       '0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0', // wstETH
+    ],
+  },
+  'Stake.link': {
+    1: [
+      '0xb8b295df2cd735b15be5eb419517aa626fc43cd5', // stLINK
+      '0x2ff4390db61f282ef4e6d4612c776b809a541753', // stPOL
+    ],
+  },
+  'Sky': {
+    1: [
+      '0xa3931d71877c0e7a3148cb7eb4463524fec27fbd', // sUSDS
+    ],
+  },
+  'Symbiotic': {
+    1: [
+      '0xc6132faf04627c8d05d6e759fabb331ef2d8f8fd', // stSPK
+    ],
+  },
+  'Frankencoin': {
+    1: [
+      '0x1ba26788dfde592fec8bcb0eaff472a42be341b2', // FPS
+    ],
+  },
+  'Frax': {
+    1: [
+      '0xac3e018457b222d93114458476f3e3416abbe38f', // sfrxETH
+    ],
+  },
+  'Renzo': {
+    1: [
+      '0xbf5495efe5db9ce00f80364c8b423567e58d2110', // ezETH
+    ],
+  },
+  'Morpho': {
+    1: [
+      '0xbeef01735c132ada46aa9aa4c54623caa92a64cb', // steakUSDC
+    ],
+  },
+  'Reserve Protocol': {
+    1: [
+      '0xffa151ad0a0e2e40f39f9e5e9f87cf9e45e819dd', // eth+RSR (staked RSR for ETH+)
+      '0x744119681198b157a20d3e70ec2a456672bcded4', // vlRSR-ixETH
+      '0x9f65716046ba5920f5385ebda9fc532ecd8014b7', // vlRSR-ixEdel
     ],
   },
 };
